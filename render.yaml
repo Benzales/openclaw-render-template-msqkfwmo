@@ -2,7 +2,7 @@ services:
   - type: web
     runtime: docker
     name: AlphaClaw
-    plan: starter
+    plan: pro
     healthCheckPath: /health
     envVars:
       - key: SETUP_PASSWORD

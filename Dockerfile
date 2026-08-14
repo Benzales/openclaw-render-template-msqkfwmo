@@ -8,6 +8,13 @@ COPY package.json ./
 RUN npm install --omit=dev --prefer-online && npm cache clean --force
 
 ENV PATH="/app/node_modules/.bin:$PATH"
+
+# gbrain: Ben's knowledge brain CLI (needs bun)
+RUN curl -fsSL https://bun.sh/install | bash
+ENV BUN_INSTALL="/root/.bun"
+ENV PATH="/root/.bun/bin:$PATH"
+RUN bun install -g github:garrytan/gbrain || true
+RUN gbrain --version || echo "gbrain install needs attention"
 ENV ALPHACLAW_ROOT_DIR=/data
 
 RUN mkdir -p /data
