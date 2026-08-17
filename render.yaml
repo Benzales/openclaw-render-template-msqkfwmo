@@ -13,6 +13,28 @@ services:
         generateValue: true
       - key: PORT
         value: 3000
+      # --- gbrain host ---
+      # Secrets (sync: false) are set in the Render dashboard, never here.
+      - key: GBRAIN_HOME
+        value: /data
+      - key: BRAIN_REPO
+        value: Benzales/brain
+      - key: BRAIN_REPO_PATH
+        value: /data/brain
+      - key: BRAIN_BRANCH
+        value: main
+      - key: GBRAIN_SERVE_PORT
+        value: 3131
+      - key: GBRAIN_EMBEDDING_MODEL
+        value: openai:text-embedding-3-large
+      - key: GBRAIN_EMBEDDING_DIMENSIONS
+        value: 1536
+      # GITHUB_TOKEN, GBRAIN_DATABASE_URL and OPENAI_API_KEY are deliberately NOT
+      # declared here. They already live in /data/.env via the AlphaClaw Envars UI,
+      # which is the single source of truth for them; start.sh imports them.
+      # Never printed on a non-TTY start, so it has to be set rather than read back.
+      - key: GBRAIN_ADMIN_BOOTSTRAP_TOKEN
+        generateValue: true
     disk:
       name: openclaw-data
       mountPath: /data

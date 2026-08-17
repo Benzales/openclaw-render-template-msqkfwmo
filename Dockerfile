@@ -16,10 +16,18 @@ RUN bun install -g github:garrytan/gbrain
 ENV PATH="/root/.bun/bin:$PATH"
 RUN gbrain --version
 ENV ALPHACLAW_ROOT_DIR=/data
+# gbrain resolves its config dir as $GBRAIN_HOME/.gbrain. Left unset it lands in
+# /root/.gbrain, which is container-local and wiped on every redeploy, taking the
+# config, the git credential store and the locks with it. /data is the disk.
+ENV GBRAIN_HOME=/data
 
 RUN mkdir -p /data
 
 EXPOSE 3000
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["alphaclaw", "start"]
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# -g so tini signals the whole process group; start.sh runs two children.
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
+CMD ["/app/start.sh"]
