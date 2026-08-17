@@ -74,23 +74,37 @@ if [ -d "$OPENCLAW_DIR/.git" ]; then
   fi
 fi
 
-declare -a PIDS=()
-term() { log "SIGTERM; stopping children"; kill -TERM "${PIDS[@]}" 2>/dev/null; }
-trap term TERM INT
+# Loom staying up matters more than the brain server does. An earlier version ran
+# both children under `wait -n`, which meant a gbrain serve that could not start
+# would exit the container, and Render would restart it into the same failure:
+# a crash loop that takes the always-on agent offline over a brain-side problem.
+# So serve gets supervised and retried forever, and only alphaclaw's death ends
+# the container. A permanently broken serve is loud in the logs, not fatal.
+serve_loop() {
+  n=0
+  while :; do
+    gbrain serve --http --port "$GBRAIN_PORT" --bind 127.0.0.1
+    n=$((n + 1))
+    log "WARN gbrain serve exited (restart #$n); retrying in 15s"
+    sleep 15
+  done
+}
 
 # cd first: .gbrain-source is resolved from CWD, and it is what pins the server
 # to the `brain` source instead of the dead `default` one.
 cd "$BRAIN_DIR" 2>/dev/null || { log "WARN no $BRAIN_DIR; serving from /app"; cd /app; }
 
-gbrain serve --http --port "$GBRAIN_PORT" --bind 127.0.0.1 & PIDS+=($!)
-log "gbrain serve --http on 127.0.0.1:$GBRAIN_PORT (pid ${PIDS[-1]})"
+serve_loop & SERVE_PID=$!
+log "gbrain serve supervised on 127.0.0.1:$GBRAIN_PORT (pid $SERVE_PID)"
 
-alphaclaw start & PIDS+=($!)
-log "alphaclaw start (pid ${PIDS[-1]})"
+alphaclaw start & AC_PID=$!
+log "alphaclaw start (pid $AC_PID)"
 
-wait -n
+term() { log "SIGTERM; stopping children"; kill -TERM "$SERVE_PID" "$AC_PID" 2>/dev/null; }
+trap term TERM INT
+
+wait "$AC_PID"
 code=$?
-log "a child exited ($code); shutting the container down so Render restarts it"
-kill -TERM "${PIDS[@]}" 2>/dev/null
-wait
+log "alphaclaw exited ($code); shutting down so Render restarts the service"
+kill -TERM "$SERVE_PID" 2>/dev/null
 exit "$code"
