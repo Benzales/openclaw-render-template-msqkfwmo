@@ -58,6 +58,22 @@ else
     || log "ERROR clone failed; gbrain serve starts without a checkout"
 fi
 
+# The agent repo (skills, identity) is /data/.openclaw, a git checkout of
+# Benzales/agent that alphaclaw auto-PUSHES but never pulls. It sat 6 commits
+# behind for days, leaving Loom with 1 skill out of 69, and nothing surfaced it.
+# ff-only and clean-tree-only, so this can never fight the auto-push or eat work.
+OPENCLAW_DIR="${OPENCLAW_DIR:-/data/.openclaw}"
+if [ -d "$OPENCLAW_DIR/.git" ]; then
+  if [ -z "$(git -C "$OPENCLAW_DIR" status --porcelain)" ]; then
+    git -C "$OPENCLAW_DIR" fetch -q origin main \
+      && git -C "$OPENCLAW_DIR" pull --ff-only origin main \
+      && log "agent repo up to date ($(ls "$OPENCLAW_DIR/skills" 2>/dev/null | wc -l | tr -d ' ') skills)" \
+      || log "WARN agent-repo pull failed; skills may be stale"
+  else
+    log "WARN $OPENCLAW_DIR is dirty; skipping pull so nothing local is lost"
+  fi
+fi
+
 declare -a PIDS=()
 term() { log "SIGTERM; stopping children"; kill -TERM "${PIDS[@]}" 2>/dev/null; }
 trap term TERM INT
