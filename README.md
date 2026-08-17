@@ -196,6 +196,32 @@ First time you DM the bot, it sends a pairing request. Approve it in the setup U
 
 The channel's env var is empty or missing. Go to the Envars tab, add the token, and save. The channel will be automatically enabled in the config.
 
+## This box is also the gbrain host
+
+`start.sh` runs two long-lived processes, not one:
+
+- `gbrain serve --http` on `127.0.0.1:3131`, serving the brain checkout at `/data/brain`
+- `alphaclaw start`, the agent, which reaches the brain over loopback
+
+Both git checkouts on the disk are pulled on boot: `/data/brain` (the knowledge base) and
+`/data/.openclaw` (this agent's own skills and identity). The second one matters more than it
+looks. AlphaClaw auto-pushes `/data/.openclaw` but never pulled it, so it silently fell 6 commits
+behind and the agent was running with 1 skill instead of 69.
+
+Secrets come from `/data/.env`, which the AlphaClaw server reads but only after `start.sh` has
+already run, so the boot script imports the few keys it needs itself.
+
+Only AlphaClaw's death stops the container. `gbrain serve` is supervised and retried, so a brain
+problem degrades search rather than taking the agent offline.
+
+## Deploys
+
+Auto-deploy on push requires the **Render GitHub App** to be installed on the account that owns
+this repo. The one-click blueprint flow does not install it: it authorizes an OAuth app, which is
+enough to read the repo but creates no push webhook. Until the app is installed, the Settings
+toggle can read `On Commit` while nothing whatsoever deploys, which is a silent failure worth
+knowing about. Check the Deploys tab, not the toggle.
+
 ## Links
 
 - [OpenClaw docs](https://docs.openclaw.ai)
