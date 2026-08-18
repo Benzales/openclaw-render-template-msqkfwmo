@@ -12,7 +12,12 @@ ENV PATH="/app/node_modules/.bin:$PATH"
 # gbrain: Ben's knowledge brain CLI. Needs bun; copy the binary from the official
 # image rather than running bun's installer, which requires unzip (absent in slim).
 COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
-RUN bun install -g github:garrytan/gbrain
+# PINNED, deliberately. An unpinned install means every rebuild silently lands
+# on a different gbrain, and the schema is SHARED with the Mac via Supabase:
+# whichever machine runs the newer binary drags migrations forward for both.
+# Bump this only in step with the Mac (see meta/OPERATIONS.md).
+ARG GBRAIN_VERSION=v0.46.19.0
+RUN bun install -g "github:garrytan/gbrain#${GBRAIN_VERSION}"
 ENV PATH="/root/.bun/bin:$PATH"
 RUN gbrain --version
 ENV ALPHACLAW_ROOT_DIR=/data
