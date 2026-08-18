@@ -94,17 +94,44 @@ serve_loop() {
 # to the `brain` source instead of the dead `default` one.
 cd "$BRAIN_DIR" 2>/dev/null || { log "WARN no $BRAIN_DIR; serving from /app"; cd /app; }
 
+# The host is the only indexer now, so Ben's pushes from the Mac have to reach it
+# somehow. gbrain's own 30-minute pull cron deliberately skips containers, and the
+# `gbrain remote ping` doorbell needs the server reachable from outside, which it
+# is not (loopback only, by design). So reconcile on a timer: pull, then sync.
+# --ff-only, and every failure is non-fatal, so this can never fight the
+# write-through push or wedge the box.
+RECONCILE_SECS="${RECONCILE_SECS:-900}"
+reconcile_loop() {
+  while :; do
+    sleep "$RECONCILE_SECS"
+    if [ -n "$(git -C "$BRAIN_DIR" status --porcelain)" ]; then
+      log "reconcile: working tree dirty, skipping this pass"
+      continue
+    fi
+    if git -C "$BRAIN_DIR" pull --ff-only origin "$BRAIN_BRANCH" >/dev/null 2>&1; then
+      ( cd "$BRAIN_DIR" && gbrain sync --source brain --repo "$BRAIN_DIR" --workers 2 >/dev/null 2>&1 ) \
+        && log "reconcile: pulled and re-indexed" \
+        || log "WARN reconcile: sync failed"
+    else
+      log "WARN reconcile: pull failed (diverged or offline); index may be stale"
+    fi
+  done
+}
+
 serve_loop & SERVE_PID=$!
 log "gbrain serve supervised on 127.0.0.1:$GBRAIN_PORT (pid $SERVE_PID)"
+
+reconcile_loop & RECONCILE_PID=$!
+log "reconcile loop every ${RECONCILE_SECS}s (pid $RECONCILE_PID)"
 
 alphaclaw start & AC_PID=$!
 log "alphaclaw start (pid $AC_PID)"
 
-term() { log "SIGTERM; stopping children"; kill -TERM "$SERVE_PID" "$AC_PID" 2>/dev/null; }
+term() { log "SIGTERM; stopping children"; kill -TERM "$SERVE_PID" "$RECONCILE_PID" "$AC_PID" 2>/dev/null; }
 trap term TERM INT
 
 wait "$AC_PID"
 code=$?
 log "alphaclaw exited ($code); shutting down so Render restarts the service"
-kill -TERM "$SERVE_PID" 2>/dev/null
+kill -TERM "$SERVE_PID" "$RECONCILE_PID" 2>/dev/null
 exit "$code"
