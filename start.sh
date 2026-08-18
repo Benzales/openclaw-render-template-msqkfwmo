@@ -64,13 +64,20 @@ fi
 # ff-only and clean-tree-only, so this can never fight the auto-push or eat work.
 OPENCLAW_DIR="${OPENCLAW_DIR:-/data/.openclaw}"
 if [ -d "$OPENCLAW_DIR/.git" ]; then
-  if [ -z "$(git -C "$OPENCLAW_DIR" status --porcelain)" ]; then
+  # --untracked-files=no is load-bearing. Loom writes memory files under
+  # workspace/, which .gitignore whitelists, so a bare --porcelain reports the
+  # tree dirty almost whenever Loom has been working and this pull silently
+  # skips. That is the mechanism behind "Loom had 1 skill out of 69": the pull
+  # existed, gated on a condition Loom's own writes keep breaking. Only TRACKED
+  # modifications should block it; ff-only refuses on its own if an incoming
+  # commit would clobber an untracked path, so nothing local is at risk.
+  if [ -z "$(git -C "$OPENCLAW_DIR" status --porcelain --untracked-files=no)" ]; then
     git -C "$OPENCLAW_DIR" fetch -q origin main \
       && git -C "$OPENCLAW_DIR" pull --ff-only origin main \
       && log "agent repo up to date ($(ls "$OPENCLAW_DIR/skills" 2>/dev/null | wc -l | tr -d ' ') skills)" \
       || log "WARN agent-repo pull failed; skills may be stale"
   else
-    log "WARN $OPENCLAW_DIR is dirty; skipping pull so nothing local is lost"
+    log "WARN $OPENCLAW_DIR has uncommitted TRACKED changes; skipping pull so nothing local is lost"
   fi
 fi
 
