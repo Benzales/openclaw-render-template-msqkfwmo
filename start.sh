@@ -90,6 +90,30 @@ serve_loop() {
   done
 }
 
+# The minion queue had no worker anywhere, on any machine. Jobs accumulated
+# (`gbrain sync` enqueues facts-absorb on every reconcile pass) and nothing ever
+# claimed them, so the backlog grew monotonically and one job sat leased-but-dead
+# for 15h because no worker was alive to reap its expired lease either.
+#
+# `jobs supervisor` rather than `jobs work`: the supervisor IS the auto-restart
+# wrapper around the worker, and it reaps stale PID locks on start, which matters
+# because the pid file lands on the persistent disk and survives a redeploy.
+# Foreground (no --detach) so this shell owns it, matching serve_loop.
+#
+# --concurrency 1 deliberately: 4GB is shared with Loom and gbrain serve. Raise it
+# only after watching a full drain. Shell jobs stay OFF (the default); that flag
+# is the remote-code-execution surface.
+WORKER_CONCURRENCY="${WORKER_CONCURRENCY:-1}"
+worker_loop() {
+  n=0
+  while :; do
+    gbrain jobs supervisor start --queue default --concurrency "$WORKER_CONCURRENCY"
+    n=$((n + 1))
+    log "WARN jobs supervisor exited (restart #$n); retrying in 30s"
+    sleep 30
+  done
+}
+
 # cd first: .gbrain-source is resolved from CWD, and it is what pins the server
 # to the `brain` source instead of the dead `default` one.
 cd "$BRAIN_DIR" 2>/dev/null || { log "WARN no $BRAIN_DIR; serving from /app"; cd /app; }
@@ -124,14 +148,17 @@ log "gbrain serve supervised on 127.0.0.1:$GBRAIN_PORT (pid $SERVE_PID)"
 reconcile_loop & RECONCILE_PID=$!
 log "reconcile loop every ${RECONCILE_SECS}s (pid $RECONCILE_PID)"
 
+worker_loop & WORKER_PID=$!
+log "jobs supervisor supervised, queue=default concurrency=$WORKER_CONCURRENCY (pid $WORKER_PID)"
+
 alphaclaw start & AC_PID=$!
 log "alphaclaw start (pid $AC_PID)"
 
-term() { log "SIGTERM; stopping children"; kill -TERM "$SERVE_PID" "$RECONCILE_PID" "$AC_PID" 2>/dev/null; }
+term() { log "SIGTERM; stopping children"; kill -TERM "$SERVE_PID" "$RECONCILE_PID" "$WORKER_PID" "$AC_PID" 2>/dev/null; }
 trap term TERM INT
 
 wait "$AC_PID"
 code=$?
 log "alphaclaw exited ($code); shutting down so Render restarts the service"
-kill -TERM "$SERVE_PID" "$RECONCILE_PID" 2>/dev/null
+kill -TERM "$SERVE_PID" "$RECONCILE_PID" "$WORKER_PID" 2>/dev/null
 exit "$code"
